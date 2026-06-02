@@ -84,6 +84,18 @@ def iter_missing_runs(mask: np.ndarray):
         yield start, len(mask) - 1
 
 
+def apply_transform(series: pd.Series, transform_type: str) -> pd.Series:
+    if transform_type == "log1p":
+        return pd.Series(np.log1p(series.clip(lower=0).to_numpy()), index=series.index)
+    return series.copy()
+
+
+def reverse_transform(series: pd.Series, transform_type: str) -> pd.Series:
+    if transform_type == "log1p":
+        return pd.Series(np.expm1(series.to_numpy()), index=series.index)
+    return series.copy()
+
+
 def impute_time_series(values: pd.Series, year_lookup: dict, rule: dict) -> tuple[pd.Series, pd.Series]:
     result = values.astype("float64").copy()
     methods = pd.Series(pd.NA, index=values.index, dtype="object")
@@ -92,18 +104,11 @@ def impute_time_series(values: pd.Series, year_lookup: dict, rule: dict) -> tupl
         return result, methods
 
     years = pd.Index([year_lookup[col] for col in values.index])
-    if rule["transform"] == "log1p":
-        working_values = np.log1p(result.clip(lower=0))
-    else:
-        working_values = result.copy()
-
+    
+    working_values = apply_transform(result, rule.get("transform"))
     working_series = pd.Series(working_values.to_numpy(), index=years, dtype="float64")
     interpolated = working_series.interpolate(method="index", limit_area="inside")
-
-    if rule["transform"] == "log1p":
-        interpolated_values = np.expm1(interpolated)
-    else:
-        interpolated_values = interpolated
+    interpolated_values = reverse_transform(interpolated, rule.get("transform"))
 
     candidates = pd.Series(interpolated_values.to_numpy(), index=values.index, dtype="float64")
     missing_mask = result.isna().to_numpy()
@@ -149,18 +154,13 @@ def fill_full_country_indicator_series(values: pd.Series, year_lookup: dict, rul
         return result
 
     years = pd.Index([year_lookup[col] for col in values.index])
-    if rule["transform"] == "log1p":
-        working_values = np.log1p(result.clip(lower=0))
-    else:
-        working_values = result.copy()
-
+    
+    working_values = apply_transform(result, rule.get("transform"))
     working_series = pd.Series(working_values.to_numpy(), index=years, dtype="float64")
     filled = working_series.interpolate(method="index", limit_direction="both")
-
-    if rule["transform"] == "log1p":
-        result = pd.Series(np.expm1(filled).to_numpy(), index=values.index, dtype="float64")
-    else:
-        result = pd.Series(filled.to_numpy(), index=values.index, dtype="float64")
+    result_values = reverse_transform(filled, rule.get("transform"))
+    
+    result = pd.Series(result_values.to_numpy(), index=values.index, dtype="float64")
 
     if rule["clip_lower"] is not None or rule["clip_upper"] is not None:
         result = result.clip(lower=rule["clip_lower"], upper=rule["clip_upper"])

@@ -40,75 +40,77 @@ def impute_year_values(
     return imputed_values, imputation_methods
 
 
-def build_dataset() -> pd.DataFrame:
+def load_and_clean_data() -> pd.DataFrame:
     df = pd.read_csv(RAW_DATA_PATH, na_values=MISSING_VALUES)
     df = df.dropna(how="all")
 
     valid_country_code = df["Country Code"].astype("string").str.fullmatch(r"[A-Z]{3}", na=False)
     df = df[valid_country_code & df["Series Code"].notna()].copy()
 
+    for col in ID_COLUMNS:
+        df[col] = df[col].astype("string").str.strip()
+
+    return df
+
+
+def get_year_columns_and_lookup(df: pd.DataFrame) -> tuple[list[str], dict]:
     year_columns = [
-        col
-        for col in df.columns
+        col for col in df.columns
         if re.fullmatch(r"\d{4} \[YR\d{4}\]", col)
         and get_year_from_column(col) <= MAX_ANALYSIS_YEAR
     ]
     year_lookup = {col: get_year_from_column(col) for col in year_columns}
+    return year_columns, year_lookup
 
-    for col in ID_COLUMNS:
-        df[col] = df[col].astype("string").str.strip()
 
-    for col in year_columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+def compute_time_series_features(
+    df: pd.DataFrame, 
+    imputed_year_values: pd.DataFrame, 
+    raw_year_values: pd.DataFrame, 
+    year_lookup: dict
+) -> pd.DataFrame:
+    available_year_count = raw_year_values.notna().sum(axis=1)
+    missing_year_count = raw_year_values.isna().sum(axis=1)
+
+    first_col = imputed_year_values.apply(pd.Series.first_valid_index, axis=1)
+    latest_col = imputed_year_values.apply(pd.Series.last_valid_index, axis=1)
+
+    first_year = first_col.map(year_lookup).astype("Int64")
+    latest_year = latest_col.map(year_lookup).astype("Int64")
+
+    first_value = imputed_year_values.bfill(axis=1).iloc[:, 0]
+    latest_value = imputed_year_values.ffill(axis=1).iloc[:, -1]
+
+    first_value = first_value.where(first_col.notna(), pd.NA)
+    latest_value = latest_value.where(latest_col.notna(), pd.NA)
 
     feature_df = df["Series Name"].apply(classify_indicator)
-    raw_year_values = df[year_columns].copy()
-    imputed_year_values, _ = impute_year_values(df, year_columns, year_lookup)
-    df[year_columns] = imputed_year_values
-    year_stats = raw_year_values
-
-    available_year_count = year_stats.notna().sum(axis=1)
-    missing_year_count = year_stats.isna().sum(axis=1)
-
-    first_year = []
-    latest_year = []
-    first_value = []
-    latest_value = []
-
-    for _, row in imputed_year_values.iterrows():
-        valid_values = row.dropna()
-        if valid_values.empty:
-            first_year.append(pd.NA)
-            latest_year.append(pd.NA)
-            first_value.append(pd.NA)
-            latest_value.append(pd.NA)
-            continue
-
-        first_col = valid_values.index[0]
-        latest_col = valid_values.index[-1]
-        first_year.append(year_lookup[first_col])
-        latest_year.append(year_lookup[latest_col])
-        first_value.append(valid_values.iloc[0])
-        latest_value.append(valid_values.iloc[-1])
-
     indicator_features = pd.concat([df[ID_COLUMNS].reset_index(drop=True), feature_df.reset_index(drop=True)], axis=1)
+
     indicator_features["available_year_count"] = available_year_count.to_numpy()
     indicator_features["missing_year_count"] = missing_year_count.to_numpy()
-    indicator_features["first_year_with_value"] = first_year
-    indicator_features["latest_year_with_value"] = latest_year
-    indicator_features["first_value"] = first_value
-    indicator_features["latest_value"] = latest_value
-    indicator_features["change_since_first"] = indicator_features["latest_value"] - indicator_features["first_value"]
-    first_values = pd.to_numeric(indicator_features["first_value"], errors="coerce")
-    change_values = pd.to_numeric(indicator_features["change_since_first"], errors="coerce")
-    indicator_features["pct_change_since_first"] = np.divide(
-        change_values,
-        first_values,
-        out=np.zeros_like(change_values, dtype="float64"),
-        where=first_values.ne(0) & first_values.notna(),
-    ) * 100
-    indicator_features["trend_direction"] = indicator_features["change_since_first"].apply(trend_direction)
+    indicator_features["first_year_with_value"] = first_year.to_numpy()
+    indicator_features["latest_year_with_value"] = latest_year.to_numpy()
+    indicator_features["first_value"] = first_value.to_numpy()
+    indicator_features["latest_value"] = latest_value.to_numpy()
 
+    indicator_features["change_since_first"] = indicator_features["latest_value"] - indicator_features["first_value"]
+    
+    first_values_num = pd.to_numeric(indicator_features["first_value"], errors="coerce")
+    change_values_num = pd.to_numeric(indicator_features["change_since_first"], errors="coerce")
+    
+    indicator_features["pct_change_since_first"] = np.divide(
+        change_values_num,
+        first_values_num,
+        out=np.zeros_like(change_values_num, dtype="float64"),
+        where=first_values_num.ne(0) & first_values_num.notna(),
+    ) * 100
+    
+    indicator_features["trend_direction"] = indicator_features["change_since_first"].apply(trend_direction)
+    return indicator_features
+
+
+def reshape_to_long_format(df: pd.DataFrame, year_columns: list[str], indicator_features: pd.DataFrame) -> pd.DataFrame:
     long_df = df.melt(
         id_vars=ID_COLUMNS,
         value_vars=year_columns,
@@ -126,44 +128,40 @@ def build_dataset() -> pd.DataFrame:
         }
     )
 
+    merge_cols = [
+        "country_code", "series_code", "indicator_category", "education_level",
+        "gender", "metric_unit", "available_year_count", "missing_year_count",
+        "first_year_with_value", "latest_year_with_value", "first_value",
+        "latest_value", "change_since_first", "pct_change_since_first", "trend_direction"
+    ]
+
     long_df = long_df.merge(
-        indicator_features[
-            [
-                "Country Code",
-                "Series Code",
-                "indicator_category",
-                "education_level",
-                "gender",
-                "metric_unit",
-                "available_year_count",
-                "missing_year_count",
-                "first_year_with_value",
-                "latest_year_with_value",
-                "first_value",
-                "latest_value",
-                "change_since_first",
-                "pct_change_since_first",
-                "trend_direction",
-            ]
-        ].rename(columns={"Country Code": "country_code", "Series Code": "series_code"}),
+        indicator_features.rename(columns={"Country Code": "country_code", "Series Code": "series_code"})[merge_cols],
         on=["country_code", "series_code"],
         how="left",
     )
 
     long_df = long_df.sort_values(["country_code", "series_code", "year"]).reset_index(drop=True)
+    return long_df
+
+
+def calculate_yoy_metrics(long_df: pd.DataFrame) -> pd.DataFrame:
     group_cols = ["country_code", "series_code"]
     long_df["previous_value"] = long_df.groupby(group_cols)["value"].shift(1)
     long_df["yoy_change"] = long_df["value"] - long_df["previous_value"]
     long_df["previous_value"] = long_df["previous_value"].fillna(long_df["value"])
     long_df["yoy_change"] = long_df["yoy_change"].fillna(0)
+    
     previous_values = pd.to_numeric(long_df["previous_value"], errors="coerce")
     yoy_changes = pd.to_numeric(long_df["yoy_change"], errors="coerce")
+    
     long_df["yoy_change_pct"] = np.divide(
         yoy_changes,
         previous_values,
         out=np.zeros_like(yoy_changes, dtype="float64"),
         where=previous_values.ne(0) & previous_values.notna(),
     ) * 100
+    
     long_df["is_value_available"] = long_df["value"].notna()
     long_df["is_latest_year_with_value"] = (
         long_df["latest_year_with_value"].notna()
@@ -174,11 +172,28 @@ def build_dataset() -> pd.DataFrame:
         (long_df["year"] - 2001) // 5 * 5 + 2005
     ).astype(str)
 
-    long_df = long_df[LONG_OUTPUT_COLUMNS]
-    return long_df
+    return long_df[LONG_OUTPUT_COLUMNS]
 
 
-def build_country_year_dataset(long_df: pd.DataFrame) -> pd.DataFrame:
+def build_dataset() -> pd.DataFrame:
+    df = load_and_clean_data()
+    year_columns, year_lookup = get_year_columns_and_lookup(df)
+
+    for col in year_columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    raw_year_values = df[year_columns].copy()
+    imputed_year_values, _ = impute_year_values(df, year_columns, year_lookup)
+    df[year_columns] = imputed_year_values
+
+    indicator_features = compute_time_series_features(df, imputed_year_values, raw_year_values, year_lookup)
+    long_df = reshape_to_long_format(df, year_columns, indicator_features)
+    final_long_df = calculate_yoy_metrics(long_df)
+    
+    return final_long_df
+
+
+def extract_indicator_matrix(long_df: pd.DataFrame) -> pd.DataFrame:
     country_year_df = (
         long_df[long_df["series_code"].isin(INDICATOR_COLUMN_MAP)]
         .pivot(
@@ -194,9 +209,11 @@ def build_country_year_dataset(long_df: pd.DataFrame) -> pd.DataFrame:
         if col not in country_year_df:
             country_year_df[col] = pd.NA
 
-    country_year_df = country_year_df[["country_name", "country_code", "year", *RAW_INDICATOR_COLUMNS]]
-    indicators = country_year_df[RAW_INDICATOR_COLUMNS]
+    return country_year_df[["country_name", "country_code", "year", *RAW_INDICATOR_COLUMNS]]
 
+
+def calculate_derived_gap_and_share_metrics(country_year_df: pd.DataFrame) -> pd.DataFrame:
+    indicators = country_year_df[RAW_INDICATOR_COLUMNS]
     country_year_df["available_indicator_count"] = indicators.notna().sum(axis=1)
     country_year_df["missing_indicator_count"] = indicators.isna().sum(axis=1)
     country_year_df["data_completeness_pct"] = (
@@ -232,7 +249,11 @@ def build_country_year_dataset(long_df: pd.DataFrame) -> pd.DataFrame:
     country_year_df["gender_parity_score"] = (
         100 - (country_year_df["gender_parity_index"] - 1).abs() * 100
     ).clip(lower=0, upper=100)
+    
+    return country_year_df
 
+
+def calculate_composite_scores(country_year_df: pd.DataFrame) -> pd.DataFrame:
     education_score_components = pd.DataFrame(
         {
             "primary": country_year_df["school_enrollment_primary"].clip(0, 100),
@@ -251,6 +272,13 @@ def build_country_year_dataset(long_df: pd.DataFrame) -> pd.DataFrame:
     ].rank(pct=True)
     country_year_df["development_context_score"] = development_components.mean(axis=1, skipna=True) * 100
 
-    country_year_df = country_year_df.sort_values(["country_code", "year"]).reset_index(drop=True)
-    country_year_df = country_year_df[COUNTRY_YEAR_OUTPUT_COLUMNS]
     return country_year_df
+
+
+def build_country_year_dataset(long_df: pd.DataFrame) -> pd.DataFrame:
+    country_year_df = extract_indicator_matrix(long_df)
+    country_year_df = calculate_derived_gap_and_share_metrics(country_year_df)
+    country_year_df = calculate_composite_scores(country_year_df)
+    
+    country_year_df = country_year_df.sort_values(["country_code", "year"]).reset_index(drop=True)
+    return country_year_df[COUNTRY_YEAR_OUTPUT_COLUMNS]
