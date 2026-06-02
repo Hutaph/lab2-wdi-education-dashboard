@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from .config import (
-    RAW_DATA_PATH,
+    RAW_DATA_FILE,
     MISSING_VALUES,
     MAX_ANALYSIS_YEAR,
     ID_COLUMNS,
@@ -41,7 +41,10 @@ def impute_year_values(
 
 
 def load_and_clean_data() -> pd.DataFrame:
-    df = pd.read_csv(RAW_DATA_PATH, na_values=MISSING_VALUES)
+    if not RAW_DATA_FILE.exists():
+        raise FileNotFoundError(f"Raw WDI education data file not found: {RAW_DATA_FILE}")
+
+    df = pd.read_csv(RAW_DATA_FILE, na_values=MISSING_VALUES)
     df = df.dropna(how="all")
 
     valid_country_code = df["Country Code"].astype("string").str.fullmatch(r"[A-Z]{3}", na=False)

@@ -1,10 +1,16 @@
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-RAW_DATA_PATH = ROOT_DIR / "data" / "Data.csv"
-OUTPUT_DIR = ROOT_DIR / "data" / "processed"
-OUTPUT_PATH = OUTPUT_DIR / "wdi_education_preprocessed.csv"
-COUNTRY_YEAR_OUTPUT_PATH = OUTPUT_DIR / "wdi_education_country_year.csv"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+DATA_DIR = PROJECT_ROOT / "data"
+RAW_DATA_DIR = DATA_DIR / "raw"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
+
+RAW_DATA_FILE = RAW_DATA_DIR / "wdi_education_raw.csv"
+METADATA_FILE = RAW_DATA_DIR / "wdi_education_metadata.csv"
+
+LONG_OUTPUT_FILE = PROCESSED_DATA_DIR / "wdi_education_preprocessed.csv"
+COUNTRY_YEAR_OUTPUT_FILE = PROCESSED_DATA_DIR / "wdi_education_country_year.csv"
 
 MISSING_VALUES = ["..", "", " "]
 ID_COLUMNS = ["Country Name", "Country Code", "Series Name", "Series Code"]

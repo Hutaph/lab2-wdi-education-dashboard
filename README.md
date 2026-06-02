@@ -8,42 +8,111 @@ Thông qua việc khai thác và phân tích dữ liệu này, đồ án hướn
 
 ## 2. Cấu trúc thư mục
 ```text
-lab2-wdi-education-dashboard
- ┣ data
- ┃ ┣ processed/      # Dữ liệu đầu ra sau khi chạy script (CSV)
- ┃ ┣ Data.csv        # Dữ liệu thô (Raw data) tải từ World Bank
- ┃ ┗ Data_Metadata.csv
- ┣ notebooks/        # Jupyter Notebooks khám phá dữ liệu & giải thích quy trình
- ┣ scripts/          # Mã nguồn tiền xử lý dữ liệu (đã được cấu trúc hoá theo chuẩn)
- ┃ ┣ wdi_preprocess/ # Package chứa core logic (config, imputation, features...)
- ┃ ┗ preprocess_wdi_education.py # Script chính để khởi chạy pipeline
- ┣ tableau/          # Các tệp Tableau Workbook (.twbx) đã làm
- ┣ README.md         # File README
+.
+├── README.md
+├── requirements.txt
+├── data
+│   ├── raw
+│   │   ├── wdi_education_raw.csv
+│   │   └── wdi_education_metadata.csv
+│   └── processed
+│       ├── wdi_education_country_year.csv
+│       └── wdi_education_preprocessed.csv
+├── notebooks
+│   ├── data_exploration.ipynb
+│   └── preprocessing_wdi_education.ipynb
+├── scripts
+│   ├── preprocess_wdi_education.py
+│   └── wdi_preprocess
+│       ├── __init__.py
+│       ├── config.py
+│       ├── data_processing.py
+│       ├── feature_engineering.py
+│       ├── imputation.py
+│       └── utils.py
+└── tableau
+    └── dashboard_final.twbx
 ```
 
-## 3. Hướng dẫn chạy Tiền xử lý dữ liệu (Data Preprocessing)
-Phần tiền xử lý dữ liệu sử dụng thư viện `pandas` và `numpy` trong Python để làm sạch, nội suy (impute) dữ liệu thiếu, biến đổi định dạng cấu trúc, và tính toán thêm các metrics phái sinh (Feature Engineering).
+Vai trò các thư mục chính:
+- `data/raw/`: dữ liệu WDI gốc và metadata, gồm `wdi_education_raw.csv` và `wdi_education_metadata.csv`.
+- `data/processed/`: dữ liệu đã xử lý để dùng trong Tableau, gồm `wdi_education_preprocessed.csv` và `wdi_education_country_year.csv`.
+- `notebooks/`: notebook EDA và kiểm tra quy trình preprocessing.
+- `scripts/`: pipeline tiền xử lý có thể chạy lại.
+- `tableau/dashboard_final.twbx`: workbook Tableau tổng hợp cuối cùng của dashboard.
+
+## 3. Cài đặt môi trường và chạy project
+
+Project sử dụng Python để EDA, kiểm tra dữ liệu và chạy pipeline tiền xử lý; Tableau được dùng để xây dựng dashboard.
+
+### 3.1. Clone project
+```bash
+git clone https://github.com/Hutaph/lab2-wdi-education-dashboard.git
+cd lab2-wdi-education-dashboard
+```
+
+### 3.2. Tạo môi trường ảo
+Trên Linux/macOS:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Trên Windows:
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### 3.3. Cài dependencies
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+### 3.4. Chạy tiền xử lý dữ liệu
+Phần tiền xử lý dữ liệu sử dụng `pandas` và `numpy` để làm sạch, nội suy (impute) dữ liệu thiếu, biến đổi định dạng cấu trúc, và tính toán thêm các metrics phái sinh (Feature Engineering).
 
 Từ thư mục gốc của project, mở Terminal/Command Prompt và chạy lệnh sau:
 ```bash
 python scripts/preprocess_wdi_education.py
 ```
 
-Các file sau xử lý sẽ tự động được lưu vào thư mục `data/processed/`:
-- `wdi_education_preprocessed.csv`: dữ liệu dạng long (hẹp dọc), dùng để vẽ biểu đồ xu hướng theo thời gian, lọc theo quốc gia/năm một cách dễ dàng.
-- `wdi_education_country_year.csv`: dữ liệu dạng wide (rộng ngang), mỗi dòng là một quốc gia ở một năm cụ thể kèm theo tất cả các chỉ số. Dùng tốt nhất cho biểu đồ scatter, bubble, hoặc lấy data tổng hợp cho Dashboard.
+Input chính:
+- `data/raw/wdi_education_raw.csv`
+- `data/raw/wdi_education_metadata.csv`
 
-*(Tham khảo file Notebook giải thích chi tiết quá trình thăm dò và quyết định mô hình dữ liệu: `notebooks/preprocessing_wdi_education.ipynb`)*
+Output sau xử lý sẽ tự động được lưu vào:
+- `data/processed/wdi_education_preprocessed.csv`: dữ liệu dạng long (hẹp dọc), dùng để vẽ biểu đồ xu hướng theo thời gian, lọc theo quốc gia/năm một cách dễ dàng.
+- `data/processed/wdi_education_country_year.csv`: dữ liệu dạng wide (rộng ngang), mỗi dòng là một quốc gia ở một năm cụ thể kèm theo tất cả các chỉ số. Dùng tốt nhất cho biểu đồ scatter, bubble, hoặc lấy data tổng hợp cho Dashboard.
+
+### 3.5. Chạy notebook
+Mở JupyterLab:
+```bash
+jupyter lab
+```
+
+Hoặc mở trực tiếp bằng Jupyter Notebook:
+```bash
+jupyter notebook
+```
+
+Các notebook chính:
+- `notebooks/data_exploration.ipynb`: khám phá dữ liệu raw, phân tích missing values và thống kê mô tả.
+- `notebooks/preprocessing_wdi_education.ipynb`: kiểm tra dữ liệu processed, schema và các ràng buộc chất lượng dữ liệu.
 
 ## 4. Trực quan hóa dữ liệu (Tableau)
 Toàn bộ phần trực quan hóa và xây dựng Dashboard phân tích được thực hiện duy nhất bằng công cụ **Tableau**. 
 - **Dữ liệu đầu vào:** Các file kết quả CSV lấy từ thư mục `data/processed/` sau khi chạy Python.
-- **Bản trình bày:** Nằm trong thư mục `tableau/` dưới định dạng `.twbx` (Tableau Packaged Workbook - đã nhúng kèm data).
+- **Bản trình bày:** File `tableau/dashboard_final.twbx` dưới định dạng Tableau Packaged Workbook, đã nhúng kèm data.
+- **Tableau Public:** https://public.tableau.com/app/profile/phat.truong1395/viz/Q4_17796927321620/Dashboard_final?publish=yes
 - **Tính tương tác:** Dashboard được thiết kế đáp ứng các tiêu chí tương tác cơ bản qua các bộ lọc (Filter), Selector/Dropdown và Dashboard Actions (highlight, filter chéo) nhằm cung cấp cái nhìn rõ ràng và cho phép người dùng tự do khám phá dữ liệu.
 
-## 5. Các liên kết liên quan (Links)
-- **Video 1 - Giới thiệu công cụ Tableau:** [Chèn Link YouTube Unlisted]
-- **Video 2 - Trình bày quá trình phân tích:** [Chèn Link YouTube Unlisted]
+Để xem dashboard offline, mở `tableau/dashboard_final.twbx` bằng Tableau Desktop hoặc Tableau Public.
+
+## 5. Demo Videos
+- Video 1: https://youtu.be/wIwoXPDqe2E
+- Video 2: https://youtu.be/mezGXTf7BWI
 
 ## 6. Các lưu ý về Dữ liệu và Bản quyền
 - Các chỉ số `education_access_score`, `development_context_score` và `gender_parity_score` là các feature do nhóm tự tổng hợp tính toán thêm phục vụ mục tiêu đánh giá tổng quan, không phải chỉ số gốc của WDI.
